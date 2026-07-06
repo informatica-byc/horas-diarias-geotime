@@ -617,6 +617,13 @@ function toISODate(d){
   if(typeof d === "string") return d;
   return "";
 }
+function fmtFecha(iso){
+  if(!iso || typeof iso !== "string") return "";
+  const partes = iso.split("-");
+  if(partes.length !== 3) return iso;
+  const [y,m,d] = partes;
+  return `${d}/${m}/${y}`;
+}
 function getTurno(r){
   if(r.diurno_ordinario>0 || r.diurno_extra>0 || r.diurno_doble>0) return "Diurno";
   if(r.ordinario_mixto>0 || r.extra_mixto>0 || r.doble_mixto>0) return "Mixto";
@@ -767,7 +774,7 @@ function renderDashboard(){
   regs.forEach(r=>{ porFecha[r.fecha] = (porFecha[r.fecha]||0) + (r.horas_extra||0); });
   const fechas = Object.keys(porFecha).sort();
   drawChart("chartPorFecha","line",{
-    labels:fechas,
+    labels:fechas.map(fmtFecha),
     datasets:[{ label:"Horas extra", data:fechas.map(f=>+porFecha[f].toFixed(2)), borderColor:"#FF7A1A", backgroundColor:"rgba(255,122,26,.12)", fill:true, tension:.3, pointRadius:2 }]
   }, { plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true} } });
 
@@ -874,7 +881,7 @@ function abrirModalColab(cedula){
   document.getElementById("mkRegs").textContent = c.registros;
   document.getElementById("modalTabla").innerHTML = regs.map(r=>`
     <tr>
-      <td style="padding:5px 0;">${r.fecha}</td>
+      <td style="padding:5px 0;">${fmtFecha(r.fecha)}</td>
       <td>${r.hora_entra}</td>
       <td>${r.hora_sale}</td>
       <td>${r.turno}</td>
@@ -886,7 +893,7 @@ function abrirModalColab(cedula){
   if(state.charts.modalChart) state.charts.modalChart.destroy();
   state.charts.modalChart = new Chart(ctx, {
     type:"bar",
-    data:{ labels:regs.map(r=>r.fecha.slice(5)), datasets:[{label:"Extra", data:regs.map(r=>+r.horas_extra.toFixed(2)), backgroundColor:"#FF7A1A", borderRadius:4}]},
+    data:{ labels:regs.map(r=>fmtFecha(r.fecha).slice(0,5)), datasets:[{label:"Extra", data:regs.map(r=>+r.horas_extra.toFixed(2)), backgroundColor:"#FF7A1A", borderRadius:4}]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
   });
   document.getElementById("modalColab").classList.add("active");
@@ -906,7 +913,7 @@ document.getElementById("btnReporteExcel").addEventListener("click", ()=>{
     "Horas Ordinario":fmtHoras(c.horas_ordinaria), "Horas Extra":fmtHoras(c.horas_extra), "Horas Doble":fmtHoras(c.horas_doble)
   }];
   const detalle = regs.map(r=>({
-    Fecha:r.fecha, Entrada:r.hora_entra, Salida:r.hora_sale, Turno:r.turno,
+    Fecha:fmtFecha(r.fecha), Entrada:r.hora_entra, Salida:r.hora_sale, Turno:r.turno,
     Ordinario:fmtHoras(r.horas_ordinaria), Extra:fmtHoras(r.horas_extra), Doble:fmtHoras(r.horas_doble)
   }));
 
@@ -969,7 +976,7 @@ document.getElementById("btnReportePDF").addEventListener("click", ()=>{
   doc.autoTable({
     startY: 224,
     head: [["Fecha","Entrada","Salida","Turno","Ordinario","Extra","Doble"]],
-    body: regs.map(r=>[r.fecha, r.hora_entra, r.hora_sale, r.turno, fmtHoras(r.horas_ordinaria), fmtHoras(r.horas_extra), fmtHoras(r.horas_doble)]),
+    body: regs.map(r=>[fmtFecha(r.fecha), r.hora_entra, r.hora_sale, r.turno, fmtHoras(r.horas_ordinaria), fmtHoras(r.horas_extra), fmtHoras(r.horas_doble)]),
     theme:"striped",
     headStyles:{ fillColor:[31,122,114], textColor:255, fontStyle:"bold", fontSize:9 },
     styles:{ fontSize:9, cellPadding:5 },
@@ -1032,7 +1039,7 @@ function renderTablaRegistros(){
       return `<tr>
         <td><b>${r.nombre}</b></td>
         <td style="font-family:var(--font-mono);">${r.cedula}</td>
-        <td>${r.fecha}</td>
+        <td>${fmtFecha(r.fecha)}</td>
         <td>${r.hora_entra}</td>
         <td>${r.hora_sale}</td>
         <td><span class="badge ${badgeClass}">${r.turno}</span></td>
@@ -1094,7 +1101,7 @@ function exportarExcel(rows, filename){
 }
 document.getElementById("btnExportRegistros").addEventListener("click", ()=>{
   const rows = state.regFiltrados.map(r=>({
-    Colaborador:r.nombre, Cedula:r.cedula, Sede:r.sede, Fecha:r.fecha, Entrada:r.hora_entra, Salida:r.hora_sale,
+    Colaborador:r.nombre, Cedula:r.cedula, Sede:r.sede, Fecha:fmtFecha(r.fecha), Entrada:r.hora_entra, Salida:r.hora_sale,
     Turno:r.turno, Ordinario:fmtHoras(r.horas_ordinaria), Extra:fmtHoras(r.horas_extra), Doble:fmtHoras(r.horas_doble)
   }));
   exportarExcel(rows, `registros_${state.sedeActual}_${new Date().toISOString().slice(0,10)}.xlsx`);
