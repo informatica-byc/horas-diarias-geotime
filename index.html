@@ -56,7 +56,9 @@ body{
     radial-gradient(1000px 700px at 110% 110%, rgba(255,200,69,.14), transparent 60%),
     linear-gradient(160deg, var(--forest) 0%, #0B2E2B 55%, #091F1D 100%);
   position:relative; overflow:hidden;
+  transition:opacity .45s cubic-bezier(.4,0,.2,1), transform .45s cubic-bezier(.4,0,.2,1);
 }
+#loginScreen.fade-out{ opacity:0; transform:scale(.97); pointer-events:none; }
 #loginScreen::before{
   content:''; position:absolute; inset:0;
   background-image:radial-gradient(circle, rgba(255,255,255,.05) 1px, transparent 1px);
@@ -111,7 +113,9 @@ body{
 #loginError{color:var(--red); font-size:13px; margin-top:12px; display:none; font-weight:600;}
 
 /* ---------- App shell ---------- */
-#app{display:none; min-height:100vh;}
+#app{display:none; min-height:100vh; opacity:0;}
+#app.visible{opacity:1; animation:appFadeIn .5s cubic-bezier(.4,0,.2,1);}
+@keyframes appFadeIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
 .topbar{
   position:sticky; top:0; z-index:40;
   display:flex; align-items:center; gap:18px;
@@ -155,8 +159,8 @@ body{
 .tab-btn:hover{color:#fff;}
 
 .view{display:none; padding:26px 24px 60px; max-width:1440px; margin:0 auto;}
-.view.active{display:block; animation:fadeIn .25s ease;}
-@keyframes fadeIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+.view.active{display:block; animation:fadeIn .35s cubic-bezier(.4,0,.2,1);}
+@keyframes fadeIn{from{opacity:0; transform:translateY(10px) scale(.99);} to{opacity:1; transform:none;}}
 
 .view-header{display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:22px; flex-wrap:wrap; gap:12px;}
 .view-header h2{font-family:var(--font-display); font-size:24px; font-weight:700; color:var(--forest);}
@@ -249,8 +253,10 @@ tbody tr{cursor:pointer;}
   display:none; position:fixed; inset:0; background:rgba(9,31,29,.55); z-index:100;
   align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(2px);
 }
-.modal-overlay.active{display:flex;}
-.modal{background:#fff; border-radius:18px; width:min(720px, 100%); max-height:88vh; overflow-y:auto; box-shadow:0 30px 80px rgba(0,0,0,.35);}
+.modal-overlay.active{display:flex; animation:overlayFadeIn .2s ease;}
+@keyframes overlayFadeIn{from{opacity:0;} to{opacity:1;}}
+.modal{background:#fff; border-radius:18px; width:min(720px, 100%); max-height:88vh; overflow-y:auto; box-shadow:0 30px 80px rgba(0,0,0,.35); animation:modalPopIn .28s cubic-bezier(.34,1.4,.64,1);}
+@keyframes modalPopIn{from{opacity:0; transform:translateY(14px) scale(.97);} to{opacity:1; transform:none;}}
 .modal-head{padding:22px 26px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-start;}
 .modal-head h3{font-family:var(--font-display); font-size:19px; color:var(--forest);}
 .modal-head p{font-size:12.5px; color:var(--ink-soft); font-family:var(--font-mono); margin-top:3px;}
@@ -320,8 +326,9 @@ tbody tr{cursor:pointer;}
 <div id="app">
   <div class="topbar">
     <div class="brand">
-      <span class="toucan-mark">
-        <svg width="30" height="30" viewBox="0 0 64 64" fill="none">
+      <span class="toucan-mark" id="topbarLogoWrap">
+        <img id="topbarLogo" src="" alt="Logo" style="width:30px; height:30px; border-radius:50%; background:#fff; object-fit:contain; padding:3px; display:none;">
+        <svg id="topbarLogoFallback" width="30" height="30" viewBox="0 0 64 64" fill="none">
           <circle cx="32" cy="32" r="32" fill="#ffffff" fill-opacity="0.08"/>
           <path d="M20 30c0-7 5-12 12-12 6 0 10 3 12 8l10-2-6 8 6 6-11-1c-1 6-6 10-13 10-8 0-15-6-15-15z" fill="#ffffff"/>
           <path d="M44 26l10-2-6 8 6 6-11-1" fill="#FF7A1A"/>
@@ -358,9 +365,12 @@ tbody tr{cursor:pointer;}
   <!-- ---------- DASHBOARD ---------- -->
   <div class="view active" id="view-dashboard">
     <div class="view-header">
-      <div>
-        <h2>Dashboard general</h2>
-        <p id="dashSedeLabel">Sede: B&amp;C Ujarrás</p>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <img id="dashLogo" src="" alt="Logo sede" style="width:46px; height:46px; border-radius:12px; background:#fff; object-fit:contain; padding:5px; box-shadow:var(--shadow); display:none;">
+        <div>
+          <h2>Dashboard general</h2>
+          <p id="dashSedeLabel">Sede: B&amp;C Ujarrás</p>
+        </div>
       </div>
     </div>
 
@@ -578,6 +588,32 @@ const AUTH_USERS = {
 };
 
 const SEDES = ["B&C Ujarrás", "Bajo Cero", "B&C La Bruja"];
+
+// Reutiliza las mismas imágenes ya incrustadas en los avatares del login (sin duplicar datos)
+function getLogoSrc(avatarId){
+  const img = document.querySelector(`#${avatarId} img`);
+  return img ? img.src : "";
+}
+const LOGO_URLS = {
+  "B&C Ujarrás": () => getLogoSrc("avatarByc"),
+  "Bajo Cero": () => getLogoSrc("avatarBajoCero"),
+  "B&C La Bruja": () => getLogoSrc("avatarBruja")
+};
+function setSedeLogos(sede){
+  const src = LOGO_URLS[sede] ? LOGO_URLS[sede]() : "";
+  const topbarLogo = document.getElementById("topbarLogo");
+  const topbarFallback = document.getElementById("topbarLogoFallback");
+  const dashLogo = document.getElementById("dashLogo");
+  if(src){
+    topbarLogo.src = src; topbarLogo.style.display = "block";
+    if(topbarFallback) topbarFallback.style.display = "none";
+    dashLogo.src = src; dashLogo.style.display = "block";
+  } else {
+    topbarLogo.style.display = "none";
+    if(topbarFallback) topbarFallback.style.display = "block";
+    dashLogo.style.display = "none";
+  }
+}
 const COLORS = { diurno:"#1F7A72", mixto:"#B8790A", nocturno:"#6B3FA0" };
 
 /* =========================================================
@@ -654,7 +690,7 @@ document.getElementById("btnCancelar").addEventListener("click", ()=>{
 function checkSession(){
   const u = sessionStorage.getItem("byc_user");
   if(u && AUTH_USERS[u] !== undefined){
-    startApp(u);
+    startApp(u, true);
   }
 }
 document.getElementById("btnLogin").addEventListener("click", doLogin);
@@ -675,12 +711,26 @@ function doLogin(){
     err.style.display = "block";
   }
 }
-function startApp(user){
-  document.getElementById("loginScreen").style.display = "none";
-  document.getElementById("app").style.display = "block";
+function startApp(user, instant){
+  const loginScreen = document.getElementById("loginScreen");
+  const app = document.getElementById("app");
   document.getElementById("userNameLbl").textContent = user;
   document.getElementById("userAvatar").textContent = user.slice(0,1).toUpperCase();
-  cargarSede(state.sedeActual);
+  setSedeLogos(state.sedeActual);
+  if(instant){
+    loginScreen.style.display = "none";
+    app.style.display = "block";
+    app.classList.add("visible");
+    cargarSede(state.sedeActual);
+    return;
+  }
+  loginScreen.classList.add("fade-out");
+  setTimeout(()=>{
+    loginScreen.style.display = "none";
+    app.style.display = "block";
+    requestAnimationFrame(()=>{ app.classList.add("visible"); });
+    cargarSede(state.sedeActual);
+  }, 420);
 }
 document.getElementById("btnLogout").addEventListener("click", ()=>{
   sessionStorage.removeItem("byc_user");
@@ -707,6 +757,7 @@ document.getElementById("sedeSelect").addEventListener("change", (e)=>{
   state.sedeActual = e.target.value;
   const lbl = e.target.value === "__ALL__" ? "Todas las sedes" : e.target.value;
   document.getElementById("uploadSedeLabel").textContent = e.target.value === "__ALL__" ? "B&C Ujarrás" : e.target.value;
+  setSedeLogos(e.target.value);
   cargarSede(state.sedeActual);
 });
 
