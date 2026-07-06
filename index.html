@@ -530,6 +530,16 @@ tbody tr{cursor:pointer;}
         <div id="progressLabel">Procesando...</div>
       </div>
       <div class="upload-log" id="uploadLog" style="display:none;"></div>
+
+      <div style="margin-top:34px; padding-top:24px; border-top:1px solid var(--line);">
+        <h3 style="font-family:var(--font-display); font-size:15px; color:var(--forest); margin-bottom:6px;">🛠️ Reparar fechas antiguas</h3>
+        <p style="font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;">
+          Si cargaste datos antes de esta actualización, las fechas pueden estar guardadas con el mes y el día invertidos.
+          Este botón corrige los registros de la sede seleccionada arriba (<b id="repararSedeLabel">B&amp;C Ujarrás</b>) sin necesidad de volver a subir el Excel.
+        </p>
+        <button class="btn-sm ghost" id="btnRepararFechas">Reparar fechas de esta sede</button>
+        <div class="upload-log" id="repararLog" style="display:none;"></div>
+      </div>
     </div>
   </div>
 
@@ -711,10 +721,28 @@ function toISODate(d){
 }
 function fmtFecha(iso){
   if(!iso || typeof iso !== "string") return "";
-  const partes = iso.split("-");
-  if(partes.length !== 3) return iso;
-  const [y,m,d] = partes;
-  return `${d}/${m}/${y}`;
+  // formato correcto ya guardado: YYYY-MM-DD
+  const isoMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(isoMatch){
+    const [, y, m, d] = isoMatch;
+    return `${d}/${m}/${y}`;
+  }
+  // formato antiguo (bug de SheetJS con el numFmt 14 de Excel): m/d/aa
+  const legacyMatch = iso.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(legacyMatch){
+    const [, mes, dia, anioRaw] = legacyMatch;
+    const anio = anioRaw.length === 2 ? (parseInt(anioRaw,10) < 70 ? "20"+anioRaw : "19"+anioRaw) : anioRaw;
+    return `${dia.padStart(2,"0")}/${mes.padStart(2,"0")}/${anio}`;
+  }
+  return iso;
+}
+function fechaLegacyAISO(iso){
+  // convierte una fecha vieja "m/d/aa" a formato ISO real (para migrar datos guardados)
+  const m = (iso||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(!m) return null;
+  const [, mes, dia, anioRaw] = m;
+  const anio = anioRaw.length === 2 ? (parseInt(anioRaw,10) < 70 ? "20"+anioRaw : "19"+anioRaw) : anioRaw;
+  return `${anio}-${mes.padStart(2,"0")}-${dia.padStart(2,"0")}`;
 }
 function getTurno(r){
   if(r.diurno_ordinario>0 || r.diurno_extra>0 || r.diurno_doble>0) return "Diurno";
@@ -842,6 +870,7 @@ document.getElementById("sedeSelect").addEventListener("change", (e)=>{
   state.sedeActual = e.target.value;
   const lbl = e.target.value === "__ALL__" ? "Todas las sedes" : e.target.value;
   document.getElementById("uploadSedeLabel").textContent = e.target.value === "__ALL__" ? "B&C Ujarrás" : e.target.value;
+  document.getElementById("repararSedeLabel").textContent = e.target.value === "__ALL__" ? "B&C Ujarrás" : e.target.value;
   setSedeLogos(e.target.value);
   cargarSede(state.sedeActual);
 });
@@ -1518,6 +1547,69 @@ async function eliminarUsuario(id){
     alert("Error eliminando el usuario: " + e.message);
   }
 }
+
+/* =========================================================
+   REPARAR FECHAS ANTIGUAS (bug numFmt 14 de Excel: m/d/aa)
+   ========================================================= */
+function logReparar(msg){
+  const log = document.getElementById("repararLog");
+  log.style.display = "block";
+  log.innerHTML += msg + "<br>";
+  log.scrollTop = log.scrollHeight;
+}
+
+document.getElementById("btnRepararFechas").addEventListener("click", async ()=>{
+  const sede = state.sedeActual === "__ALL__" ? "B&C Ujarrás" : state.sedeActual;
+  const btn = document.getElementById("btnRepararFechas");
+  document.getElementById("repararLog").innerHTML = "";
+  document.getElementById("repararLog").style.display = "block";
+  logReparar(`🔍 Revisando registros de "${sede}"...`);
+  btn.disabled = true;
+
+  try{
+    const snap = await db.collection("registros").where("sede","==",sede).get();
+    const aReparar = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d.fecha||"")){
+        const nuevaFecha = fechaLegacyAISO(d.fecha);
+        if(nuevaFecha) aReparar.push({ ref: doc.ref, data: d, nuevaFecha });
+      }
+    });
+
+    if(aReparar.length === 0){
+      logReparar("✅ No se encontraron fechas para reparar. Todo está en orden.");
+      btn.disabled = false;
+      return;
+    }
+    logReparar(`⚠️ ${aReparar.length} registros con fecha antigua encontrados. Corrigiendo...`);
+
+    let hecho = 0;
+    for(let i=0; i<aReparar.length; i+=200){
+      const lote = aReparar.slice(i, i+200);
+      const batch = db.batch();
+      lote.forEach(item=>{
+        const rec = Object.assign({}, item.data, { fecha: item.nuevaFecha });
+        const nuevoId = `${rec.sede}__${rec.cedula}__${rec.fecha}`.replace(/[\/\s]/g,"_");
+        batch.set(db.collection("registros").doc(nuevoId), rec, { merge:true });
+        batch.delete(item.ref);
+      });
+      await batch.commit();
+      hecho += lote.length;
+      logReparar(`   ...${hecho}/${aReparar.length} corregidos`);
+    }
+    logReparar(`🎉 Listo. Se repararon ${aReparar.length} registros de "${sede}".`);
+    if(state.sedeActual === sede || state.sedeActual === "__ALL__"){
+      await cargarSede(state.sedeActual);
+    }
+  } catch(e){
+    console.error(e);
+    logReparar("❌ Error: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 
 </script>
 </body>
