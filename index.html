@@ -1285,7 +1285,7 @@ async function procesarArchivo(file){
   const data = await file.arrayBuffer();
   const wb = XLSX.read(data, { type:"array", cellDates:true });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:"" });
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:"" });
 
   // buscar la fila de encabezado real (columna A === "Cedula")
   let headerIdx = rows.findIndex(r => (r[0]||"").toString().trim().toLowerCase() === "cedula");
@@ -1301,13 +1301,22 @@ async function procesarArchivo(file){
     const nombre = (r[1]||"").toString().trim();
     let fechaRaw = r[2];
     let fecha;
-    if(fechaRaw instanceof Date) fecha = fechaRaw.toISOString().slice(0,10);
-    else {
-      // intenta parsear dd/mm/yyyy si viene como texto
-      const s = (fechaRaw||"").toString();
-      const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if(m) fecha = `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
-      else fecha = s.slice(0,10);
+    if(fechaRaw instanceof Date){
+      fecha = fechaRaw.toISOString().slice(0,10);
+    } else if(typeof fechaRaw === "number"){
+      // serial de fecha de Excel (por si cellDates no lo convirtió)
+      const parsed = XLSX.SSF.parse_date_code(fechaRaw);
+      if(parsed) fecha = `${parsed.y}-${String(parsed.m).padStart(2,"0")}-${String(parsed.d).padStart(2,"0")}`;
+      else fecha = String(fechaRaw);
+    } else {
+      // intenta parsear dd/mm/yyyy o dd/mm/yy si viene como texto
+      const s = (fechaRaw||"").toString().trim();
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if(m){
+        let anio = m[3];
+        if(anio.length === 2) anio = (parseInt(anio,10) < 70 ? "20" : "19") + anio;
+        fecha = `${anio}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+      } else fecha = s.slice(0,10);
     }
     const hora_entra = (r[3]||"--").toString().trim();
     const hora_sale = (r[4]||"--").toString().trim();
