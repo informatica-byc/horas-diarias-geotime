@@ -399,6 +399,11 @@ tbody tr{cursor:pointer;}
     </div>
 
     <div class="card">
+      <h3>Horas totales por columna <span style="font-size:11.5px; color:var(--ink-soft); font-weight:500;">detalle exacto del reporte cargado</span></h3>
+      <canvas id="chartPorColumna" style="max-height:320px;"></canvas>
+    </div>
+
+    <div class="card">
       <h3>
         <span id="top10Titulo">Top 10 · Más horas extra</span>
         <select id="topNSelect" style="font-family:var(--font-body); font-size:12.5px; font-weight:600; padding:6px 10px; border-radius:8px; border:1.5px solid var(--line); background:#fff; cursor:pointer;">
@@ -773,6 +778,24 @@ function renderDashboard(){
     labels:["Diurno","Mixto","Nocturno"],
     datasets:[{ data:[porTurno.Diurno,porTurno.Mixto,porTurno.Nocturno].map(v=>+v.toFixed(2)), backgroundColor:[COLORS.diurno,COLORS.mixto,COLORS.nocturno], borderWidth:0 }]
   }, { plugins:{legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}}} });
+
+  // por columna exacta (9 categorías del reporte original)
+  const cols = [
+    { key:"diurno_ordinario",   label:"Diurno Ordinario",   color:"#1F7A72" },
+    { key:"diurno_extra",       label:"Diurno Extra",       color:"#FF7A1A" },
+    { key:"diurno_doble",       label:"Diurno Doble",       color:"#E5484D" },
+    { key:"ordinario_mixto",    label:"Ordinario Mixto",    color:"#6FB3AC" },
+    { key:"extra_mixto",        label:"Extra Mixto",        color:"#FFA95C" },
+    { key:"doble_mixto",        label:"Doble Mixto",        color:"#EF7B80" },
+    { key:"ordinario_nocturno", label:"Ordinario Nocturno", color:"#9B7BC7" },
+    { key:"extra_nocturno",     label:"Extra Nocturno",     color:"#B8790A" },
+    { key:"doble_nocturno",     label:"Doble Nocturno",     color:"#C23A40" }
+  ];
+  const totalesPorColumna = cols.map(c => +regs.reduce((s,r)=>s+(r[c.key]||0),0).toFixed(2));
+  drawChart("chartPorColumna","bar",{
+    labels:cols.map(c=>c.label),
+    datasets:[{ label:"Horas totales", data:totalesPorColumna, backgroundColor:cols.map(c=>c.color), borderRadius:6 }]
+  }, { plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${fmtHoras(ctx.parsed.y)} h`}}}, scales:{ y:{beginAtZero:true} } });
 
   renderTopNChart();
 }
