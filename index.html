@@ -360,6 +360,7 @@ tbody tr{cursor:pointer;}
     <button class="tab-btn" data-view="colaboradores">👥 Colaboradores</button>
     <button class="tab-btn" data-view="registros">📋 Registros</button>
     <button class="tab-btn" data-view="cargar">⬆️ Cargar Datos</button>
+    <button class="tab-btn" data-view="usuarios">👤 Usuarios</button>
   </div>
 
   <!-- ---------- DASHBOARD ---------- -->
@@ -531,6 +532,61 @@ tbody tr{cursor:pointer;}
       <div class="upload-log" id="uploadLog" style="display:none;"></div>
     </div>
   </div>
+
+  <!-- ---------- USUARIOS ---------- -->
+  <div class="view" id="view-usuarios">
+    <div class="view-header">
+      <div>
+        <h2>Usuarios</h2>
+        <p>Gestioná quién puede ingresar al panel</p>
+      </div>
+      <button class="btn-sm" id="btnNuevoUsuario">+ Nuevo usuario</button>
+    </div>
+    <div class="table-wrap">
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Nombre</th>
+              <th>Creado</th>
+              <th style="width:160px;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyUsuarios"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- MODAL USUARIO ---------- -->
+<div class="modal-overlay" id="modalUsuario">
+  <div class="modal" style="width:min(440px, 100%);">
+    <div class="modal-head">
+      <div>
+        <h3 id="modalUsuarioTitulo">Nuevo usuario</h3>
+        <p style="font-family:var(--font-body);">Acceso al panel de horas extra</p>
+      </div>
+      <button class="modal-close" id="modalUsuarioClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Usuario (para iniciar sesión)</label>
+        <input type="text" id="fUsuarioLogin" placeholder="ej. jzuniga">
+      </div>
+      <div class="field">
+        <label>Nombre para mostrar</label>
+        <input type="text" id="fUsuarioNombre" placeholder="ej. Joan Zúñiga">
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="fUsuarioPass" placeholder="">
+      </div>
+      <div id="usuarioModalError" style="color:var(--red); font-size:12.5px; font-weight:600; display:none; margin-bottom:12px;"></div>
+      <button class="btn-primary" id="btnGuardarUsuario">Guardar</button>
+    </div>
+  </div>
 </div>
 
 <!-- ---------- MODAL DETALLE COLABORADOR ---------- -->
@@ -689,7 +745,7 @@ document.getElementById("btnCancelar").addEventListener("click", ()=>{
 });
 function checkSession(){
   const u = sessionStorage.getItem("byc_user");
-  if(u && AUTH_USERS[u] !== undefined){
+  if(u){
     startApp(u, true);
   }
 }
@@ -697,18 +753,46 @@ document.getElementById("btnLogin").addEventListener("click", doLogin);
 document.getElementById("loginPass").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 document.getElementById("loginUser").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 
-function doLogin(){
+async function doLogin(){
   const u = document.getElementById("loginUser").value.trim();
   const p = document.getElementById("loginPass").value;
   const err = document.getElementById("loginError");
+  const btn = document.getElementById("btnLogin");
+  err.style.display = "none";
+
+  // 1) usuario fijo del código (siempre funciona, incluso sin Firestore configurado)
   if(AUTH_USERS[u] !== undefined && AUTH_USERS[u] === p){
-    err.style.display = "none";
     sessionStorage.setItem("byc_user", u);
     state.sedeActual = sedeSeleccionadaLogin;
     document.getElementById("sedeSelect").value = sedeSeleccionadaLogin;
     startApp(u);
-  } else {
+    return;
+  }
+
+  // 2) usuarios creados desde la pestaña "Usuarios" (guardados en Firestore)
+  if(!u){ err.textContent = "Usuario o contraseña incorrectos."; err.style.display = "block"; return; }
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Verificando...";
+  try{
+    const doc = await db.collection("usuarios").doc(u.toLowerCase()).get();
+    if(doc.exists && doc.data().password === p){
+      const nombreMostrar = doc.data().nombre || u;
+      sessionStorage.setItem("byc_user", nombreMostrar);
+      state.sedeActual = sedeSeleccionadaLogin;
+      document.getElementById("sedeSelect").value = sedeSeleccionadaLogin;
+      startApp(nombreMostrar);
+    } else {
+      err.textContent = "Usuario o contraseña incorrectos.";
+      err.style.display = "block";
+    }
+  } catch(e){
+    console.error(e);
+    err.textContent = "No se pudo verificar el usuario. Revisá tu conexión.";
     err.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
   }
 }
 function startApp(user, instant){
@@ -747,6 +831,7 @@ document.querySelectorAll(".tab-btn").forEach(btn=>{
     document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("view-"+btn.dataset.view).classList.add("active");
+    if(btn.dataset.view === "usuarios") cargarUsuarios();
   });
 });
 
@@ -1298,6 +1383,133 @@ function setProgress(pct, label){
   document.getElementById("progressFill").style.width = pct+"%";
   document.getElementById("progressLabel").textContent = label;
 }
+
+/* =========================================================
+   USUARIOS (crear / editar / eliminar)
+   ========================================================= */
+async function cargarUsuarios(){
+  const tbody = document.getElementById("tbodyUsuarios");
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:30px; color:var(--ink-soft);"><span class="loader"></span></td></tr>`;
+  try{
+    const snap = await db.collection("usuarios").get();
+    const rows = [];
+    snap.forEach(doc=>rows.push({ id: doc.id, ...doc.data() }));
+    rows.sort((a,b)=>(a.id||"").localeCompare(b.id||""));
+    state.usuarios = rows;
+    renderUsuariosTable();
+  } catch(e){
+    console.error(e);
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:30px; color:var(--ink-soft);">No se pudieron cargar los usuarios. Revisá la configuración de Firestore.</td></tr>`;
+  }
+}
+
+function renderUsuariosTable(){
+  const tbody = document.getElementById("tbodyUsuarios");
+  if(!state.usuarios || state.usuarios.length===0){
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:36px; color:var(--ink-soft);">🦜 Todavía no creaste ningún usuario aquí.<br>El usuario fijo del código sigue funcionando para entrar.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = state.usuarios.map(u=>{
+    const fecha = u.creadoEn && u.creadoEn.toDate ? u.creadoEn.toDate().toLocaleDateString("es-CR") : "—";
+    return `<tr>
+      <td style="font-family:var(--font-mono);">${u.id}</td>
+      <td>${u.nombre || "—"}</td>
+      <td>${fecha}</td>
+      <td>
+        <button class="btn-sm ghost" onclick="abrirModalUsuario('${u.id}')">Editar</button>
+        <button class="btn-sm ghost" style="color:var(--red); margin-left:6px;" onclick="eliminarUsuario('${u.id}')">Eliminar</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function abrirModalUsuario(id){
+  const editando = !!id;
+  state.usuarioEditando = id || null;
+  const fLogin = document.getElementById("fUsuarioLogin");
+  const fNombre = document.getElementById("fUsuarioNombre");
+  const fPass = document.getElementById("fUsuarioPass");
+  document.getElementById("usuarioModalError").style.display = "none";
+  document.getElementById("modalUsuarioTitulo").textContent = editando ? "Editar usuario" : "Nuevo usuario";
+
+  if(editando){
+    const u = state.usuarios.find(x=>x.id===id);
+    fLogin.value = u ? u.id : id;
+    fLogin.disabled = true;
+    fNombre.value = u && u.nombre ? u.nombre : "";
+    fPass.value = "";
+    fPass.placeholder = "Dejar en blanco para no cambiarla";
+  } else {
+    fLogin.value = "";
+    fLogin.disabled = false;
+    fNombre.value = "";
+    fPass.value = "";
+    fPass.placeholder = "";
+  }
+  document.getElementById("modalUsuario").classList.add("active");
+}
+document.getElementById("btnNuevoUsuario").addEventListener("click", ()=>abrirModalUsuario(null));
+document.getElementById("modalUsuarioClose").addEventListener("click", ()=>document.getElementById("modalUsuario").classList.remove("active"));
+document.getElementById("modalUsuario").addEventListener("click", (e)=>{ if(e.target.id==="modalUsuario") e.target.classList.remove("active"); });
+
+document.getElementById("btnGuardarUsuario").addEventListener("click", async ()=>{
+  const errBox = document.getElementById("usuarioModalError");
+  errBox.style.display = "none";
+  const login = document.getElementById("fUsuarioLogin").value.trim().toLowerCase();
+  const nombre = document.getElementById("fUsuarioNombre").value.trim();
+  const pass = document.getElementById("fUsuarioPass").value;
+
+  if(!login || !/^[a-z0-9_.\-]+$/.test(login)){
+    errBox.textContent = "El usuario solo puede tener letras, números, punto, guion o guion bajo.";
+    errBox.style.display = "block";
+    return;
+  }
+  if(!state.usuarioEditando && !pass){
+    errBox.textContent = "La contraseña es obligatoria para un usuario nuevo.";
+    errBox.style.display = "block";
+    return;
+  }
+
+  const btn = document.getElementById("btnGuardarUsuario");
+  btn.disabled = true;
+  try{
+    if(state.usuarioEditando){
+      const data = { nombre };
+      if(pass) data.password = pass;
+      await db.collection("usuarios").doc(state.usuarioEditando).update(data);
+    } else {
+      const existente = await db.collection("usuarios").doc(login).get();
+      if(existente.exists){
+        errBox.textContent = "Ya existe un usuario con ese nombre de acceso.";
+        errBox.style.display = "block";
+        btn.disabled = false;
+        return;
+      }
+      await db.collection("usuarios").doc(login).set({
+        nombre, password: pass, creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    document.getElementById("modalUsuario").classList.remove("active");
+    cargarUsuarios();
+  } catch(e){
+    console.error(e);
+    errBox.textContent = "Error guardando el usuario: " + e.message;
+    errBox.style.display = "block";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function eliminarUsuario(id){
+  if(!confirm(`¿Eliminar el usuario "${id}"? Ya no podrá iniciar sesión con esa cuenta.`)) return;
+  try{
+    await db.collection("usuarios").doc(id).delete();
+    cargarUsuarios();
+  } catch(e){
+    alert("Error eliminando el usuario: " + e.message);
+  }
+}
+
 </script>
 </body>
 </html>
