@@ -445,13 +445,17 @@ tbody tr{cursor:pointer;}
         <option value="Mixto">Mixto</option>
         <option value="Nocturno">Nocturno</option>
       </select>
+      <input type="date" id="fColabDesde" title="Desde">
+      <input type="date" id="fColabHasta" title="Hasta">
       <select id="fColabOrden">
         <option value="extra_desc">Más horas extra primero</option>
         <option value="extra_asc">Menos horas extra primero</option>
         <option value="nombre_asc">Nombre A-Z</option>
         <option value="doble_desc">Más horas dobles primero</option>
       </select>
+      <button class="btn-sm ghost" id="btnColabLimpiarPeriodo">Limpiar periodo</button>
     </div>
+    <p id="colabPeriodoInfo" style="font-size:12px; color:var(--ink-soft); margin:-6px 0 14px;"></p>
     <div class="table-wrap" id="colabList"></div>
   </div>
 
@@ -906,10 +910,9 @@ async function cargarSede(sede){
   hideLoading();
 }
 
-function recalcular(){
-  // agregación por colaborador (cedula)
+function agregarPorColaborador(regs){
   const map = {};
-  state.registros.forEach(r=>{
+  regs.forEach(r=>{
     const key = r.cedula;
     if(!map[key]) map[key] = { cedula:r.cedula, nombre:r.nombre, sede:r.sede, horas_ordinaria:0, horas_extra:0, horas_doble:0, registros:0, turnos:{Diurno:0,Mixto:0,Nocturno:0,"Sin turno":0} };
     map[key].horas_ordinaria += r.horas_ordinaria || 0;
@@ -918,7 +921,11 @@ function recalcular(){
     map[key].registros += 1;
     map[key].turnos[r.turno] = (map[key].turnos[r.turno]||0) + 1;
   });
-  state.colabAgg = Object.values(map);
+  return Object.values(map);
+}
+function recalcular(){
+  // agregación por colaborador (cedula) — sede completa, usada en Dashboard
+  state.colabAgg = agregarPorColaborador(state.registros);
 }
 
 /* =========================================================
@@ -998,8 +1005,24 @@ function renderColaboradores(){
   const buscar = (document.getElementById("fColabBuscar").value||"").toLowerCase();
   const turno = document.getElementById("fColabTurno").value;
   const orden = document.getElementById("fColabOrden").value;
+  const desde = document.getElementById("fColabDesde").value;
+  const hasta = document.getElementById("fColabHasta").value;
 
-  let list = state.colabAgg.filter(c=>{
+  const regsPeriodo = state.registros.filter(r=>{
+    const matchDesde = !desde || r.fecha >= desde;
+    const matchHasta = !hasta || r.fecha <= hasta;
+    return matchDesde && matchHasta;
+  });
+  const colabAggPeriodo = (desde || hasta) ? agregarPorColaborador(regsPeriodo) : state.colabAgg;
+
+  const infoEl = document.getElementById("colabPeriodoInfo");
+  if(desde || hasta){
+    infoEl.textContent = `📅 Mostrando totales del periodo: ${desde?fmtFecha(desde):"inicio"} — ${hasta?fmtFecha(hasta):"hoy"} (${regsPeriodo.length} registros)`;
+  } else {
+    infoEl.textContent = "";
+  }
+
+  let list = colabAggPeriodo.filter(c=>{
     const matchBuscar = !buscar || c.nombre.toLowerCase().includes(buscar) || c.cedula.includes(buscar);
     const matchTurno = !turno || (c.turnos[turno] && c.turnos[turno]>0);
     return matchBuscar && matchTurno;
@@ -1010,6 +1033,7 @@ function renderColaboradores(){
   else if(orden==="nombre_asc") list.sort((a,b)=>a.nombre.localeCompare(b.nombre));
   else if(orden==="doble_desc") list.sort((a,b)=>b.horas_doble-a.horas_doble);
 
+  state.colabListaActual = list;
   const maxExtra = Math.max(1, ...list.map(c=>c.horas_extra));
   const container = document.getElementById("colabList");
   if(list.length===0){
@@ -1028,18 +1052,33 @@ function renderColaboradores(){
     </div>
   `).join("");
 }
-["fColabBuscar","fColabTurno","fColabOrden"].forEach(id=>{
+["fColabBuscar","fColabTurno","fColabOrden","fColabDesde","fColabHasta"].forEach(id=>{
   document.getElementById(id).addEventListener("input", renderColaboradores);
   document.getElementById(id).addEventListener("change", renderColaboradores);
 });
+document.getElementById("btnColabLimpiarPeriodo").addEventListener("click", ()=>{
+  document.getElementById("fColabDesde").value = "";
+  document.getElementById("fColabHasta").value = "";
+  renderColaboradores();
+});
 
 function abrirModalColab(cedula){
-  const c = state.colabAgg.find(x=>x.cedula===cedula);
+  const desde = document.getElementById("fColabDesde").value;
+  const hasta = document.getElementById("fColabHasta").value;
+  const periodoActivo = !!(desde || hasta);
+
+  let regs = state.registros.filter(r=>r.cedula===cedula);
+  if(periodoActivo){
+    regs = regs.filter(r=>(!desde || r.fecha >= desde) && (!hasta || r.fecha <= hasta));
+  }
+  regs = regs.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  if(regs.length === 0) return;
+
+  const c = periodoActivo ? agregarPorColaborador(regs)[0] : state.colabAgg.find(x=>x.cedula===cedula);
   if(!c) return;
-  const regs = state.registros.filter(r=>r.cedula===cedula).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   state.modalActivo = { colaborador:c, registros:regs };
   document.getElementById("modalNombre").textContent = c.nombre;
-  document.getElementById("modalCedula").textContent = c.cedula + " · " + c.sede;
+  document.getElementById("modalCedula").textContent = c.cedula + " · " + c.sede + (periodoActivo ? ` · periodo: ${desde?fmtFecha(desde):"inicio"} — ${hasta?fmtFecha(hasta):"hoy"}` : "");
   document.getElementById("mkOrd").textContent = fmtHoras(c.horas_ordinaria);
   document.getElementById("mkExtra").textContent = fmtHoras(c.horas_extra);
   document.getElementById("mkDoble").textContent = fmtHoras(c.horas_doble);
@@ -1272,7 +1311,7 @@ document.getElementById("btnExportRegistros").addEventListener("click", ()=>{
   exportarExcel(rows, `registros_${state.sedeActual}_${new Date().toISOString().slice(0,10)}.xlsx`);
 });
 document.getElementById("btnExportColab").addEventListener("click", ()=>{
-  const rows = state.colabAgg.map(c=>({
+  const rows = (state.colabListaActual || state.colabAgg).map(c=>({
     Colaborador:c.nombre, Cedula:c.cedula, Sede:c.sede, Registros:c.registros,
     Ordinario:fmtHoras(c.horas_ordinaria), Extra:fmtHoras(c.horas_extra), Doble:fmtHoras(c.horas_doble)
   })).sort((a,b)=> b.Extra.localeCompare(a.Extra));
