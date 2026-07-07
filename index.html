@@ -175,7 +175,7 @@ body{
 }
 .kpi-card .icon{position:absolute; right:14px; top:14px; opacity:.12; font-size:36px;}
 .kpi-card .label{font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); font-weight:700; margin-bottom:8px;}
-.kpi-card .value{font-family:var(--font-display); font-size:30px; font-weight:700; color:var(--forest);}
+.kpi-card .value{font-family:var(--font-display); font-size:22px; font-weight:700; color:var(--forest); line-height:1.25;}
 .kpi-card .value small{font-size:14px; font-weight:600; color:var(--ink-soft);}
 .kpi-card.orange{border-left-color:var(--orange);}
 .kpi-card.yellow{border-left-color:var(--yellow);}
@@ -231,7 +231,7 @@ tbody tr{cursor:pointer;}
 .rank-ced{font-size:11.5px; color:var(--ink-soft); font-family:var(--font-mono);}
 .rank-bar-wrap{width:180px; height:8px; background:var(--line); border-radius:6px; overflow:hidden;}
 .rank-bar{height:100%; border-radius:6px; background:linear-gradient(90deg, var(--teal), var(--orange));}
-.rank-hrs{font-family:var(--font-mono); font-weight:700; font-size:13.5px; color:var(--forest); width:76px; text-align:right;}
+.rank-hrs{font-family:var(--font-mono); font-weight:700; font-size:13.5px; color:var(--forest); width:92px; text-align:right;}
 
 /* ---------- Upload ---------- */
 .upload-zone{
@@ -265,7 +265,7 @@ tbody tr{cursor:pointer;}
 .modal-body{padding:22px 26px;}
 .mini-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:20px;}
 .mini-kpi{background:var(--cream); border-radius:12px; padding:12px; text-align:center;}
-.mini-kpi .v{font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--forest);}
+.mini-kpi .v{font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--forest); line-height:1.3;}
 .mini-kpi .l{font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; margin-top:2px;}
 
 .empty-state{text-align:center; padding:60px 20px; color:var(--ink-soft);}
@@ -739,10 +739,16 @@ function parseHora(str){
   return h + (m/60);
 }
 function fmtHoras(dec){
-  if(!dec || isNaN(dec)) return "0:00";
+  if(!dec || isNaN(dec)) return "0 h 0 min";
   const h = Math.floor(dec);
   const m = Math.round((dec - h)*60);
-  return `${h}:${String(m).padStart(2,"0")}`;
+  return `${h} h ${m} min`;
+}
+function fmtHorasCorta(dec){
+  if(!dec || isNaN(dec)) return "0h";
+  const h = Math.floor(dec);
+  const m = Math.round((dec - h)*60);
+  return m>0 ? `${h}h ${m}m` : `${h}h`;
 }
 function toISODate(d){
   if(d instanceof Date) return d.toISOString().slice(0,10);
@@ -969,8 +975,8 @@ function renderDashboard(){
   const totalExtra = regs.reduce((s,r)=>s+(r.horas_extra||0),0);
   const totalDoble = regs.reduce((s,r)=>s+(r.horas_doble||0),0);
   const colabSet = new Set(regs.map(r=>r.cedula));
-  document.getElementById("kpiExtra").innerHTML = fmtHoras(totalExtra) + "<small> h</small>";
-  document.getElementById("kpiDoble").innerHTML = fmtHoras(totalDoble) + "<small> h</small>";
+  document.getElementById("kpiExtra").textContent = fmtHoras(totalExtra);
+  document.getElementById("kpiDoble").textContent = fmtHoras(totalDoble);
   document.getElementById("kpiColab").textContent = colabSet.size;
   document.getElementById("kpiRegistros").textContent = regs.length;
   document.getElementById("kpiAlertas").textContent = regs.filter(excedeJornada).length;
@@ -984,7 +990,7 @@ function renderDashboard(){
     datasets:[{ label:"Horas extra", data:fechas.map(f=>+porFecha[f].toFixed(2)), borderColor:"#FF7A1A", backgroundColor:"rgba(255,122,26,.12)", fill:true, tension:.3, pointRadius:3 }]
   }, { plugins:{legend:{display:false}, datalabels:{
         align:"top", anchor:"end", color:"#B8560C", font:{size:10, weight:"700"},
-        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }}, scales:{ y:{beginAtZero:true, grace:"12%"} } });
 
   // por turno
@@ -995,7 +1001,7 @@ function renderDashboard(){
     datasets:[{ data:[porTurno.Diurno,porTurno.Mixto,porTurno.Nocturno].map(v=>+v.toFixed(2)), backgroundColor:[COLORS.diurno,COLORS.mixto,COLORS.nocturno], borderWidth:0 }]
   }, { plugins:{legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}}, datalabels:{
         color:"#fff", font:{size:11.5, weight:"700"},
-        formatter:(v)=> v>0 ? fmtHoras(v)+" h" : ""
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }} });
 
   // por columna exacta (9 categorías del reporte original)
@@ -1014,9 +1020,9 @@ function renderDashboard(){
   drawChart("chartPorColumna","bar",{
     labels:cols.map(c=>c.label),
     datasets:[{ label:"Horas totales", data:totalesPorColumna, backgroundColor:cols.map(c=>c.color), borderRadius:6 }]
-  }, { plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${fmtHoras(ctx.parsed.y)} h`}}, datalabels:{
+  }, { plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${fmtHoras(ctx.parsed.y)}`}}, datalabels:{
         align:"top", anchor:"end", color:"#152321", font:{size:10.5, weight:"700"},
-        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }}, scales:{ y:{beginAtZero:true, grace:"14%"} } });
 
   renderTopNChart();
@@ -1033,7 +1039,7 @@ function renderTopNChart(){
     datasets:[{ label:"Horas extra", data:top10.map(c=>+c.horas_extra.toFixed(2)), backgroundColor:"#1F7A72", borderRadius:6 }]
   }, { indexAxis:"y", plugins:{legend:{display:false}, datalabels:{
         align:"end", anchor:"end", color:"#0F3D3A", font:{size:11, weight:"700"},
-        formatter:(v)=> v>0 ? fmtHoras(v)+" h" : ""
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }}, scales:{ x:{beginAtZero:true, grace:"18%"} } });
 }
 document.getElementById("topNSelect").addEventListener("change", renderTopNChart);
@@ -1094,7 +1100,7 @@ function renderColaboradores(){
         <div class="rank-ced">${c.cedula} · ${c.registros} registros</div>
       </div>
       <div class="rank-bar-wrap"><div class="rank-bar" style="width:${(c.horas_extra/maxExtra*100).toFixed(0)}%"></div></div>
-      <div class="rank-hrs">${fmtHoras(c.horas_extra)} h</div>
+      <div class="rank-hrs">${fmtHorasCorta(c.horas_extra)}</div>
     </div>
   `).join("");
 }
@@ -1146,7 +1152,7 @@ function abrirModalColab(cedula){
     data:{ labels:regs.map(r=>fmtFecha(r.fecha).slice(0,5)), datasets:[{label:"Extra", data:regs.map(r=>+r.horas_extra.toFixed(2)), backgroundColor:"#FF7A1A", borderRadius:4}]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, datalabels:{
         align:"top", anchor:"end", color:"#B8560C", font:{size:9.5, weight:"700"},
-        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }}, scales:{y:{beginAtZero:true, grace:"16%"}}}
   });
   document.getElementById("modalColab").classList.add("active");
@@ -1205,9 +1211,9 @@ document.getElementById("btnReportePDF").addEventListener("click", ()=>{
 
   // KPIs
   const kpis = [
-    ["Ordinario", fmtHoras(c.horas_ordinaria)+" h"],
-    ["Extra", fmtHoras(c.horas_extra)+" h"],
-    ["Doble", fmtHoras(c.horas_doble)+" h"],
+    ["Ordinario", fmtHorasCorta(c.horas_ordinaria)],
+    ["Extra", fmtHorasCorta(c.horas_extra)],
+    ["Doble", fmtHorasCorta(c.horas_doble)],
     ["Registros", String(c.registros)]
   ];
   let kx = 40;
@@ -1292,7 +1298,7 @@ function renderTablaRegistros(){
       const extraPct = Math.min(100, (r.horas_extra/4)*100);
       const barColor = r.horas_extra>=3 ? "#E5484D" : r.horas_extra>=1.5 ? "#FF7A1A" : "#FFC845";
       const alerta = excedeJornada(r);
-      const alertaTitulo = alerta ? `El ordinario (${fmtHoras(ordinarioDelTurno(r))}h) excede el máximo de ${JORNADA_MAX[r.turno]}h para jornada ${r.turno}` : "";
+      const alertaTitulo = alerta ? `El ordinario (${fmtHoras(ordinarioDelTurno(r))}) excede el máximo de ${JORNADA_MAX[r.turno]}h para jornada ${r.turno}` : "";
       return `<tr${alerta ? ` style="background:#FFF6EC;"` : ""}>
         <td><b>${r.nombre}</b>${alerta ? ` <span title="${alertaTitulo}" style="cursor:help;">⚠️</span>` : ""}</td>
         <td style="font-family:var(--font-mono);">${r.cedula}</td>
