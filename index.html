@@ -168,7 +168,7 @@ body{
 .view-header p{font-size:13px; color:var(--ink-soft); margin-top:2px;}
 
 /* ---------- KPI cards ---------- */
-.kpi-grid{display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:22px;}
+.kpi-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:16px; margin-bottom:22px;}
 .kpi-card{
   background:var(--card); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow);
   border-left:4px solid var(--teal); position:relative; overflow:hidden;
@@ -397,6 +397,11 @@ tbody tr{cursor:pointer;}
         <div class="label">Registros cargados</div>
         <div class="value" id="kpiRegistros">0</div>
       </div>
+      <div class="kpi-card red" id="kpiAlertaCard" style="cursor:pointer;" title="Click para ver estos registros">
+        <div class="icon">⚠️</div>
+        <div class="label">Posibles errores de jornada</div>
+        <div class="value" id="kpiAlertas">0</div>
+      </div>
     </div>
 
     <div class="grid-2">
@@ -479,9 +484,15 @@ tbody tr{cursor:pointer;}
       </select>
       <input type="date" id="fRegDesde" title="Desde">
       <input type="date" id="fRegHasta" title="Hasta">
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-soft); cursor:pointer;">
+        <input type="checkbox" id="fRegSoloAlertas"> ⚠️ Solo con posible error
+      </label>
       <button class="btn-sm" id="btnAplicarFiltros">Aplicar</button>
       <button class="btn-sm ghost" id="btnLimpiarFiltros">Limpiar</button>
     </div>
+    <p style="font-size:12px; color:var(--ink-soft); margin:-6px 0 16px;">
+      📘 Jornada ordinaria máxima (Código de Trabajo CR): <b>Diurna 8h</b> · <b>Mixta 7h</b> (turno después de las 19:00) · <b>Nocturna 6h</b> (turno después de las 22:30). Un registro se marca con ⚠️ cuando el "Ordinario" reportado excede ese máximo para su turno — puede indicar un error de cálculo en Geotime.
+    </p>
     <div class="table-wrap">
       <div style="overflow-x:auto;">
         <table id="tablaRegistros">
@@ -687,6 +698,19 @@ function setSedeLogos(sede){
   }
 }
 const COLORS = { diurno:"#1F7A72", mixto:"#B8790A", nocturno:"#6B3FA0" };
+// Jornada ordinaria máxima según el Código de Trabajo de Costa Rica
+const JORNADA_MAX = { "Diurno":8, "Mixto":7, "Nocturno":6 };
+function ordinarioDelTurno(r){
+  if(r.turno === "Diurno") return r.diurno_ordinario || 0;
+  if(r.turno === "Mixto") return r.ordinario_mixto || 0;
+  if(r.turno === "Nocturno") return r.ordinario_nocturno || 0;
+  return 0;
+}
+function excedeJornada(r){
+  const max = JORNADA_MAX[r.turno];
+  if(max === undefined) return false;
+  return ordinarioDelTurno(r) > max + 0.02; // pequeño margen por redondeo de minutos
+}
 
 /* =========================================================
    ESTADO
@@ -949,6 +973,7 @@ function renderDashboard(){
   document.getElementById("kpiDoble").innerHTML = fmtHoras(totalDoble) + "<small> h</small>";
   document.getElementById("kpiColab").textContent = colabSet.size;
   document.getElementById("kpiRegistros").textContent = regs.length;
+  document.getElementById("kpiAlertas").textContent = regs.filter(excedeJornada).length;
 
   // por fecha
   const porFecha = {};
@@ -1222,13 +1247,15 @@ function aplicarFiltrosRegistros(){
   const turno = document.getElementById("fRegTurno").value;
   const desde = document.getElementById("fRegDesde").value;
   const hasta = document.getElementById("fRegHasta").value;
+  const soloAlertas = document.getElementById("fRegSoloAlertas").checked;
 
   state.regFiltrados = state.registros.filter(r=>{
     const matchBuscar = !buscar || r.nombre.toLowerCase().includes(buscar) || r.cedula.includes(buscar);
     const matchTurno = !turno || r.turno===turno;
     const matchDesde = !desde || r.fecha >= desde;
     const matchHasta = !hasta || r.fecha <= hasta;
-    return matchBuscar && matchTurno && matchDesde && matchHasta;
+    const matchAlerta = !soloAlertas || excedeJornada(r);
+    return matchBuscar && matchTurno && matchDesde && matchHasta && matchAlerta;
   });
   ordenarRegistros();
   state.pagina = 1;
@@ -1264,8 +1291,10 @@ function renderTablaRegistros(){
       const badgeClass = r.turno==="Diurno"?"diurno":r.turno==="Mixto"?"mixto":r.turno==="Nocturno"?"nocturno":"sin";
       const extraPct = Math.min(100, (r.horas_extra/4)*100);
       const barColor = r.horas_extra>=3 ? "#E5484D" : r.horas_extra>=1.5 ? "#FF7A1A" : "#FFC845";
-      return `<tr>
-        <td><b>${r.nombre}</b></td>
+      const alerta = excedeJornada(r);
+      const alertaTitulo = alerta ? `El ordinario (${fmtHoras(ordinarioDelTurno(r))}h) excede el máximo de ${JORNADA_MAX[r.turno]}h para jornada ${r.turno}` : "";
+      return `<tr${alerta ? ` style="background:#FFF6EC;"` : ""}>
+        <td><b>${r.nombre}</b>${alerta ? ` <span title="${alertaTitulo}" style="cursor:help;">⚠️</span>` : ""}</td>
         <td style="font-family:var(--font-mono);">${r.cedula}</td>
         <td>${fmtFecha(r.fecha)}</td>
         <td>${r.hora_entra}</td>
@@ -1288,8 +1317,10 @@ document.getElementById("btnLimpiarFiltros").addEventListener("click", ()=>{
   document.getElementById("fRegTurno").value="";
   document.getElementById("fRegDesde").value="";
   document.getElementById("fRegHasta").value="";
+  document.getElementById("fRegSoloAlertas").checked=false;
   renderRegistros();
 });
+document.getElementById("fRegSoloAlertas").addEventListener("change", aplicarFiltrosRegistros);
 document.getElementById("fRegBuscar").addEventListener("keydown", e=>{ if(e.key==="Enter") aplicarFiltrosRegistros(); });
 document.getElementById("pgPrev").addEventListener("click", ()=>{ if(state.pagina>1){ state.pagina--; renderTablaRegistros(); } });
 document.getElementById("pgNext").addEventListener("click", ()=>{ state.pagina++; renderTablaRegistros(); });
@@ -1312,6 +1343,14 @@ document.getElementById("globalSearch").addEventListener("input", (e)=>{
   document.getElementById("fColabBuscar").value = v;
   aplicarFiltrosRegistros();
   renderColaboradores();
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  document.querySelector('.tab-btn[data-view="registros"]').classList.add("active");
+  document.getElementById("view-registros").classList.add("active");
+});
+document.getElementById("kpiAlertaCard").addEventListener("click", ()=>{
+  document.getElementById("fRegSoloAlertas").checked = true;
+  aplicarFiltrosRegistros();
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
   document.querySelector('.tab-btn[data-view="registros"]').classList.add("active");
