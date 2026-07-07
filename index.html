@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
@@ -651,6 +652,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+if(window.ChartDataLabels) Chart.register(window.ChartDataLabels);
 
 // Usuario/contraseña fijos — cambialos aquí
 const AUTH_USERS = {
@@ -739,6 +741,13 @@ function fmtFecha(iso){
     return `${dia.padStart(2,"0")}/${mes.padStart(2,"0")}/${anio}`;
   }
   return iso;
+}
+function fmtFechaDate(date){
+  if(!(date instanceof Date) || isNaN(date)) return "—";
+  const d = String(date.getDate()).padStart(2,"0");
+  const m = String(date.getMonth()+1).padStart(2,"0");
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
 }
 function fechaLegacyAISO(iso){
   // convierte una fecha vieja "m/d/aa" a formato ISO real (para migrar datos guardados)
@@ -947,8 +956,11 @@ function renderDashboard(){
   const fechas = Object.keys(porFecha).sort();
   drawChart("chartPorFecha","line",{
     labels:fechas.map(fmtFecha),
-    datasets:[{ label:"Horas extra", data:fechas.map(f=>+porFecha[f].toFixed(2)), borderColor:"#FF7A1A", backgroundColor:"rgba(255,122,26,.12)", fill:true, tension:.3, pointRadius:2 }]
-  }, { plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true} } });
+    datasets:[{ label:"Horas extra", data:fechas.map(f=>+porFecha[f].toFixed(2)), borderColor:"#FF7A1A", backgroundColor:"rgba(255,122,26,.12)", fill:true, tension:.3, pointRadius:3 }]
+  }, { plugins:{legend:{display:false}, datalabels:{
+        align:"top", anchor:"end", color:"#B8560C", font:{size:10, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+      }}, scales:{ y:{beginAtZero:true, grace:"12%"} } });
 
   // por turno
   const porTurno = { Diurno:0, Mixto:0, Nocturno:0 };
@@ -956,7 +968,10 @@ function renderDashboard(){
   drawChart("chartPorTurno","doughnut",{
     labels:["Diurno","Mixto","Nocturno"],
     datasets:[{ data:[porTurno.Diurno,porTurno.Mixto,porTurno.Nocturno].map(v=>+v.toFixed(2)), backgroundColor:[COLORS.diurno,COLORS.mixto,COLORS.nocturno], borderWidth:0 }]
-  }, { plugins:{legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}}} });
+  }, { plugins:{legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}}, datalabels:{
+        color:"#fff", font:{size:11.5, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHoras(v)+" h" : ""
+      }} });
 
   // por columna exacta (9 categorías del reporte original)
   const cols = [
@@ -974,7 +989,10 @@ function renderDashboard(){
   drawChart("chartPorColumna","bar",{
     labels:cols.map(c=>c.label),
     datasets:[{ label:"Horas totales", data:totalesPorColumna, backgroundColor:cols.map(c=>c.color), borderRadius:6 }]
-  }, { plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${fmtHoras(ctx.parsed.y)} h`}}}, scales:{ y:{beginAtZero:true} } });
+  }, { plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${fmtHoras(ctx.parsed.y)} h`}}, datalabels:{
+        align:"top", anchor:"end", color:"#152321", font:{size:10.5, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+      }}, scales:{ y:{beginAtZero:true, grace:"14%"} } });
 
   renderTopNChart();
 }
@@ -988,7 +1006,10 @@ function renderTopNChart(){
   drawChart("chartTop10","bar",{
     labels:top10.map(c=>c.nombre.split(" ").slice(0,2).join(" ")),
     datasets:[{ label:"Horas extra", data:top10.map(c=>+c.horas_extra.toFixed(2)), backgroundColor:"#1F7A72", borderRadius:6 }]
-  }, { indexAxis:"y", plugins:{legend:{display:false}}, scales:{ x:{beginAtZero:true} } });
+  }, { indexAxis:"y", plugins:{legend:{display:false}, datalabels:{
+        align:"end", anchor:"end", color:"#0F3D3A", font:{size:11, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHoras(v)+" h" : ""
+      }}, scales:{ x:{beginAtZero:true, grace:"18%"} } });
 }
 document.getElementById("topNSelect").addEventListener("change", renderTopNChart);
 
@@ -1098,7 +1119,10 @@ function abrirModalColab(cedula){
   state.charts.modalChart = new Chart(ctx, {
     type:"bar",
     data:{ labels:regs.map(r=>fmtFecha(r.fecha).slice(0,5)), datasets:[{label:"Extra", data:regs.map(r=>+r.horas_extra.toFixed(2)), backgroundColor:"#FF7A1A", borderRadius:4}]},
-    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, datalabels:{
+        align:"top", anchor:"end", color:"#B8560C", font:{size:9.5, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHoras(v) : ""
+      }}, scales:{y:{beginAtZero:true, grace:"16%"}}}
   });
   document.getElementById("modalColab").classList.add("active");
 }
@@ -1143,7 +1167,7 @@ document.getElementById("btnReportePDF").addEventListener("click", ()=>{
   doc.text("B&C Exportadores · Reporte de horas", 40, 36);
   doc.setFont("helvetica","normal");
   doc.setFontSize(10.5);
-  doc.text(`Sede: ${c.sede}   ·   Generado: ${new Date().toLocaleDateString("es-CR")}`, 40, 56);
+  doc.text(`Sede: ${c.sede}   ·   Generado: ${fmtFechaDate(new Date())}`, 40, 56);
 
   doc.setTextColor(20,35,33);
   doc.setFont("helvetica","bold");
@@ -1487,7 +1511,7 @@ function renderUsuariosTable(){
     return;
   }
   tbody.innerHTML = state.usuarios.map(u=>{
-    const fecha = u.creadoEn && u.creadoEn.toDate ? u.creadoEn.toDate().toLocaleDateString("es-CR") : "—";
+    const fecha = u.creadoEn && u.creadoEn.toDate ? fmtFechaDate(u.creadoEn.toDate()) : "—";
     return `<tr>
       <td style="font-family:var(--font-mono);">${u.id}</td>
       <td>${u.nombre || "—"}</td>
