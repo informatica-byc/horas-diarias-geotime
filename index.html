@@ -182,6 +182,7 @@ body{
 .kpi-card.red{border-left-color:var(--red);}
 
 .grid-2{display:grid; grid-template-columns:1.4fr 1fr; gap:16px; margin-bottom:16px;}
+.grid-2-even{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;}
 .card{background:var(--card); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow);}
 .card h3{font-family:var(--font-display); font-size:15.5px; font-weight:700; color:var(--forest); margin-bottom:14px; display:flex; align-items:center; justify-content:space-between;}
 .card canvas{max-height:280px;}
@@ -279,6 +280,7 @@ tbody tr{cursor:pointer;}
 @media (max-width:1000px){
   .kpi-grid{grid-template-columns:repeat(2,1fr);}
   .grid-2{grid-template-columns:1fr;}
+  .grid-2-even{grid-template-columns:1fr;}
   .topbar .search-global{display:none;}
   .mini-kpis{grid-template-columns:repeat(2,1fr);}
 }
@@ -420,6 +422,17 @@ tbody tr{cursor:pointer;}
       <canvas id="chartPorColumna" style="max-height:320px;"></canvas>
     </div>
 
+    <div class="grid-2-even">
+      <div class="card">
+        <h3>Horas extra por departamento</h3>
+        <canvas id="chartPorDepartamento" style="max-height:320px;"></canvas>
+      </div>
+      <div class="card">
+        <h3>Horas extra por puesto</h3>
+        <canvas id="chartPorPuesto" style="max-height:320px;"></canvas>
+      </div>
+    </div>
+
     <div class="card">
       <h3>
         <span id="top10Titulo">Top 10 · Más horas extra</span>
@@ -453,6 +466,9 @@ tbody tr{cursor:pointer;}
       </select>
       <input type="date" id="fColabDesde" title="Desde">
       <input type="date" id="fColabHasta" title="Hasta">
+      <select id="fColabDepto">
+        <option value="">Todos los departamentos</option>
+      </select>
       <select id="fColabOrden">
         <option value="extra_desc">Más horas extra primero</option>
         <option value="extra_asc">Menos horas extra primero</option>
@@ -953,12 +969,15 @@ function agregarPorColaborador(regs){
   const map = {};
   regs.forEach(r=>{
     const key = r.cedula;
-    if(!map[key]) map[key] = { cedula:r.cedula, nombre:r.nombre, sede:r.sede, horas_ordinaria:0, horas_extra:0, horas_doble:0, registros:0, turnos:{Diurno:0,Mixto:0,Nocturno:0,"Sin turno":0} };
+    if(!map[key]) map[key] = { cedula:r.cedula, nombre:r.nombre, sede:r.sede, departamento:r.departamento||"Sin departamento", puesto:r.puesto||"Sin puesto", horas_ordinaria:0, horas_extra:0, horas_doble:0, registros:0, turnos:{Diurno:0,Mixto:0,Nocturno:0,"Sin turno":0} };
     map[key].horas_ordinaria += r.horas_ordinaria || 0;
     map[key].horas_extra += r.horas_extra || 0;
     map[key].horas_doble += r.horas_doble || 0;
     map[key].registros += 1;
     map[key].turnos[r.turno] = (map[key].turnos[r.turno]||0) + 1;
+    // conserva el departamento/puesto más reciente si el registro lo trae explícito
+    if(r.departamento) map[key].departamento = r.departamento;
+    if(r.puesto) map[key].puesto = r.puesto;
   });
   return Object.values(map);
 }
@@ -1025,6 +1044,40 @@ function renderDashboard(){
         formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
       }}, scales:{ y:{beginAtZero:true, grace:"14%"} } });
 
+  // horas extra por departamento
+  const porDepto = {};
+  regs.forEach(r=>{
+    const d = r.departamento || "Sin departamento";
+    porDepto[d] = (porDepto[d]||0) + (r.horas_extra||0);
+  });
+  const deptosOrdenados = Object.entries(porDepto).sort((a,b)=>b[1]-a[1]).slice(0,20);
+  const dCanvas = document.getElementById("chartPorDepartamento");
+  dCanvas.style.height = Math.max(260, Math.min(700, deptosOrdenados.length*34)) + "px";
+  drawChart("chartPorDepartamento","bar",{
+    labels:deptosOrdenados.map(([d])=>d),
+    datasets:[{ label:"Horas extra", data:deptosOrdenados.map(([,v])=>+v.toFixed(2)), backgroundColor:"#1F7A72", borderRadius:6 }]
+  }, { indexAxis:"y", plugins:{legend:{display:false}, datalabels:{
+        align:"end", anchor:"end", color:"#0F3D3A", font:{size:10.5, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
+      }}, scales:{ x:{beginAtZero:true, grace:"18%"} } });
+
+  // horas extra por puesto
+  const porPuesto = {};
+  regs.forEach(r=>{
+    const p = r.puesto || "Sin puesto";
+    porPuesto[p] = (porPuesto[p]||0) + (r.horas_extra||0);
+  });
+  const puestosOrdenados = Object.entries(porPuesto).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  const pCanvas = document.getElementById("chartPorPuesto");
+  pCanvas.style.height = Math.max(260, Math.min(700, puestosOrdenados.length*34)) + "px";
+  drawChart("chartPorPuesto","bar",{
+    labels:puestosOrdenados.map(([p])=>p),
+    datasets:[{ label:"Horas extra", data:puestosOrdenados.map(([,v])=>+v.toFixed(2)), backgroundColor:"#FF7A1A", borderRadius:6 }]
+  }, { indexAxis:"y", plugins:{legend:{display:false}, datalabels:{
+        align:"end", anchor:"end", color:"#B8560C", font:{size:10.5, weight:"700"},
+        formatter:(v)=> v>0 ? fmtHorasCorta(v) : ""
+      }}, scales:{ x:{beginAtZero:true, grace:"18%"} } });
+
   renderTopNChart();
 }
 
@@ -1059,6 +1112,7 @@ function renderColaboradores(){
   const orden = document.getElementById("fColabOrden").value;
   const desde = document.getElementById("fColabDesde").value;
   const hasta = document.getElementById("fColabHasta").value;
+  const depto = document.getElementById("fColabDepto").value;
 
   const regsPeriodo = state.registros.filter(r=>{
     const matchDesde = !desde || r.fecha >= desde;
@@ -1066,6 +1120,15 @@ function renderColaboradores(){
     return matchDesde && matchHasta;
   });
   const colabAggPeriodo = (desde || hasta) ? agregarPorColaborador(regsPeriodo) : state.colabAgg;
+
+  // poblar el select de departamentos con lo que exista en la sede actual
+  const deptoSelect = document.getElementById("fColabDepto");
+  const deptosDisponibles = Array.from(new Set(state.colabAgg.map(c=>c.departamento||"Sin departamento"))).sort();
+  if(deptoSelect.dataset.count != deptosDisponibles.length){
+    deptoSelect.innerHTML = `<option value="">Todos los departamentos</option>` + deptosDisponibles.map(d=>`<option value="${d}">${d}</option>`).join("");
+    deptoSelect.value = depto;
+    deptoSelect.dataset.count = deptosDisponibles.length;
+  }
 
   const infoEl = document.getElementById("colabPeriodoInfo");
   if(desde || hasta){
@@ -1077,7 +1140,8 @@ function renderColaboradores(){
   let list = colabAggPeriodo.filter(c=>{
     const matchBuscar = !buscar || c.nombre.toLowerCase().includes(buscar) || c.cedula.includes(buscar);
     const matchTurno = !turno || (c.turnos[turno] && c.turnos[turno]>0);
-    return matchBuscar && matchTurno;
+    const matchDepto = !depto || (c.departamento||"Sin departamento") === depto;
+    return matchBuscar && matchTurno && matchDepto;
   });
 
   if(orden==="extra_desc") list.sort((a,b)=>b.horas_extra-a.horas_extra);
@@ -1098,13 +1162,14 @@ function renderColaboradores(){
       <div class="rank-info">
         <div class="rank-name">${c.nombre}</div>
         <div class="rank-ced">${c.cedula} · ${c.registros} registros</div>
+        <div class="rank-ced" style="margin-top:2px;">🏢 ${c.departamento||"Sin departamento"} · 💼 ${c.puesto||"Sin puesto"}</div>
       </div>
       <div class="rank-bar-wrap"><div class="rank-bar" style="width:${(c.horas_extra/maxExtra*100).toFixed(0)}%"></div></div>
       <div class="rank-hrs">${fmtHorasCorta(c.horas_extra)}</div>
     </div>
   `).join("");
 }
-["fColabBuscar","fColabTurno","fColabOrden","fColabDesde","fColabHasta"].forEach(id=>{
+["fColabBuscar","fColabTurno","fColabOrden","fColabDesde","fColabHasta","fColabDepto"].forEach(id=>{
   document.getElementById(id).addEventListener("input", renderColaboradores);
   document.getElementById(id).addEventListener("change", renderColaboradores);
 });
@@ -1130,7 +1195,7 @@ function abrirModalColab(cedula){
   if(!c) return;
   state.modalActivo = { colaborador:c, registros:regs };
   document.getElementById("modalNombre").textContent = c.nombre;
-  document.getElementById("modalCedula").textContent = c.cedula + " · " + c.sede + (periodoActivo ? ` · periodo: ${desde?fmtFecha(desde):"inicio"} — ${hasta?fmtFecha(hasta):"hoy"}` : "");
+  document.getElementById("modalCedula").textContent = c.cedula + " · " + c.sede + " · " + (c.departamento||"Sin departamento") + " · " + (c.puesto||"Sin puesto") + (periodoActivo ? ` · periodo: ${desde?fmtFecha(desde):"inicio"} — ${hasta?fmtFecha(hasta):"hoy"}` : "");
   document.getElementById("mkOrd").textContent = fmtHoras(c.horas_ordinaria);
   document.getElementById("mkExtra").textContent = fmtHoras(c.horas_extra);
   document.getElementById("mkDoble").textContent = fmtHoras(c.horas_doble);
@@ -1168,7 +1233,7 @@ document.getElementById("btnReporteExcel").addEventListener("click", ()=>{
   const { colaborador:c, registros:regs } = state.modalActivo;
 
   const resumen = [{
-    Colaborador:c.nombre, Cedula:c.cedula, Sede:c.sede, Registros:c.registros,
+    Colaborador:c.nombre, Cedula:c.cedula, Sede:c.sede, Departamento:c.departamento||"Sin departamento", Puesto:c.puesto||"Sin puesto", Registros:c.registros,
     "Horas Ordinario":fmtHoras(c.horas_ordinaria), "Horas Extra":fmtHoras(c.horas_extra), "Horas Doble":fmtHoras(c.horas_doble)
   }];
   const detalle = regs.map(r=>({
@@ -1207,7 +1272,7 @@ document.getElementById("btnReportePDF").addEventListener("click", ()=>{
   doc.setFont("helvetica","normal");
   doc.setFontSize(10.5);
   doc.setTextColor(90,100,97);
-  doc.text(`Cédula: ${c.cedula}`, 40, 134);
+  doc.text(`Cédula: ${c.cedula}  ·  ${c.departamento||"Sin departamento"} · ${c.puesto||"Sin puesto"}`, 40, 134);
 
   // KPIs
   const kpis = [
@@ -1381,7 +1446,7 @@ document.getElementById("btnExportRegistros").addEventListener("click", ()=>{
 });
 document.getElementById("btnExportColab").addEventListener("click", ()=>{
   const rows = (state.colabListaActual || state.colabAgg).map(c=>({
-    Colaborador:c.nombre, Cedula:c.cedula, Sede:c.sede, Registros:c.registros,
+    Colaborador:c.nombre, Cedula:c.cedula, Sede:c.sede, Departamento:c.departamento||"Sin departamento", Puesto:c.puesto||"Sin puesto", Registros:c.registros,
     Ordinario:fmtHoras(c.horas_ordinaria), Extra:fmtHoras(c.horas_extra), Doble:fmtHoras(c.horas_doble)
   })).sort((a,b)=> b.Extra.localeCompare(a.Extra));
   exportarExcel(rows, `colaboradores_${state.sedeActual}_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -1466,12 +1531,15 @@ async function procesarArchivo(file){
     const ordinario_nocturno = parseHora(r[11]);
     const extra_nocturno = parseHora(r[12]);
     const doble_nocturno = parseHora(r[13]);
+    const departamento = (r[14]||"Sin departamento").toString().trim() || "Sin departamento";
+    const puesto = (r[15]||"Sin puesto").toString().trim() || "Sin puesto";
 
     const rec = {
       sede: sedeDestino, cedula, nombre, fecha, hora_entra, hora_sale,
       diurno_ordinario, diurno_extra, diurno_doble,
       ordinario_mixto, extra_mixto, doble_mixto,
-      ordinario_nocturno, extra_nocturno, doble_nocturno
+      ordinario_nocturno, extra_nocturno, doble_nocturno,
+      departamento, puesto
     };
     rec.turno = getTurno(rec);
     rec.horas_ordinaria = diurno_ordinario + ordinario_mixto + ordinario_nocturno;
