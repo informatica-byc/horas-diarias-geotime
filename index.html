@@ -1648,8 +1648,16 @@ async function procesarArchivo(file){
 
   try{
     if(document.getElementById("chkReemplazar").checked){
-      logUpload("🗑️ Vaciando registros existentes de esta sede...");
-      await vaciarSede(sedeDestino);
+      logUpload("🗑️ Buscando registros existentes de esta sede...");
+      await vaciarSede(sedeDestino, (hecho, total)=>{
+        if(total === 0){
+          logUpload("   No había registros previos que borrar.");
+        } else {
+          logUpload(`   Borrando... ${hecho}/${total}`);
+          setProgress(Math.round((hecho/total)*10), `Vaciando sede... ${hecho}/${total}`);
+        }
+      });
+      logUpload("✅ Sede vaciada.");
     }
 
     const chunkSize = 400;
@@ -1662,7 +1670,7 @@ async function procesarArchivo(file){
         const ref = db.collection("registros").doc(id);
         batch.set(ref, rec, { merge:true });
       });
-      await batch.commit();
+      await conTimeout(batch.commit(), 20000, "Un lote de carga tardó demasiado (revisá tu conexión o las reglas de Firestore).");
       done += chunk.length;
       const pct = 10 + Math.round((done/registros.length)*85);
       setProgress(pct, `Subiendo... ${done}/${registros.length} registros`);
@@ -1679,16 +1687,31 @@ async function procesarArchivo(file){
   }
 }
 
-async function vaciarSede(sede){
-  const snap = await db.collection("registros").where("sede","==",sede).get();
+async function vaciarSede(sede, onProgress){
+  const snap = await conTimeout(
+    db.collection("registros").where("sede","==",sede).get(),
+    20000,
+    "No se pudo consultar los registros existentes (revisá tu conexión o las reglas de Firestore)."
+  );
   const docs = snap.docs;
+  if(onProgress) onProgress(0, docs.length);
+  if(docs.length === 0) return;
+  let hecho = 0;
   for(let i=0;i<docs.length;i+=400){
     const batch = db.batch();
     docs.slice(i,i+400).forEach(d=>batch.delete(d.ref));
-    await batch.commit();
+    await conTimeout(batch.commit(), 20000, "Un lote de borrado tardó demasiado (revisá tu conexión o las reglas de Firestore).");
+    hecho += Math.min(400, docs.length - i);
+    if(onProgress) onProgress(hecho, docs.length);
   }
 }
 
+function conTimeout(promise, ms, mensaje){
+  return Promise.race([
+    promise,
+    new Promise((_, reject)=>setTimeout(()=>reject(new Error(mensaje || `La operación tardó más de ${ms/1000}s (posible problema de red o de reglas de Firestore)`)), ms))
+  ]);
+}
 function setProgress(pct, label){
   document.getElementById("progressFill").style.width = pct+"%";
   document.getElementById("progressLabel").textContent = label;
@@ -1866,7 +1889,7 @@ document.getElementById("btnRepararFechas").addEventListener("click", async ()=>
         batch.set(db.collection("registros").doc(nuevoId), rec, { merge:true });
         batch.delete(item.ref);
       });
-      await batch.commit();
+      await conTimeout(batch.commit(), 20000, "Un lote de reparación tardó demasiado (revisá tu conexión o las reglas de Firestore).");
       hecho += lote.length;
       logReparar(`   ...${hecho}/${aReparar.length} corregidos`);
     }
