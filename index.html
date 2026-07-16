@@ -378,6 +378,12 @@ tbody tr{cursor:pointer;}
       </div>
     </div>
 
+    <div id="dashFiltroBanner" style="display:none; align-items:center; gap:12px; background:#FFF3DC; border:1px solid #FFE1A8; color:#8A5A00; padding:11px 16px; border-radius:12px; font-size:12.5px; font-weight:600; margin-bottom:18px;">
+      <span>🔎</span>
+      <span id="dashFiltroTexto" style="flex:1;"></span>
+      <button class="btn-sm ghost" id="btnQuitarFiltroDash">Quitar filtro</button>
+    </div>
+
     <div class="kpi-grid">
       <div class="kpi-card orange">
         <div class="icon">⏱️</div>
@@ -500,6 +506,12 @@ tbody tr{cursor:pointer;}
       </select>
       <input type="date" id="fRegDesde" title="Desde">
       <input type="date" id="fRegHasta" title="Hasta">
+      <select id="fRegDepto">
+        <option value="">Todos los departamentos</option>
+      </select>
+      <select id="fRegPuesto">
+        <option value="">Todos los puestos</option>
+      </select>
       <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-soft); cursor:pointer;">
         <input type="checkbox" id="fRegSoloAlertas"> ⚠️ Solo con posible error
       </label>
@@ -516,6 +528,8 @@ tbody tr{cursor:pointer;}
             <tr>
               <th data-key="nombre">Colaborador</th>
               <th data-key="cedula">Cédula</th>
+              <th data-key="departamento">Departamento</th>
+              <th data-key="puesto">Puesto</th>
               <th data-key="fecha">Fecha</th>
               <th data-key="hora_entra">Entrada</th>
               <th data-key="hora_sale">Salida</th>
@@ -953,10 +967,14 @@ async function cargarSede(sede){
       regs.push(d);
     });
     state.registros = regs;
+    state.registrosActivos = regs;
+    state.filtroActivoDesc = null;
     recalcular();
+    limpiarTodosLosFiltros();
     renderDashboard();
     renderColaboradores();
     renderRegistros();
+    actualizarBannerFiltro();
     document.getElementById("dashSedeLabel").textContent = "Sede: " + (sede==="__ALL__" ? "Todas las sedes" : sede);
   } catch(e){
     console.error(e);
@@ -986,11 +1004,51 @@ function recalcular(){
   state.colabAgg = agregarPorColaborador(state.registros);
 }
 
+function limpiarTodosLosFiltros(){
+  ["fRegBuscar","fColabBuscar"].forEach(id=>document.getElementById(id).value = "");
+  ["fRegTurno","fColabTurno","fRegDepto","fColabDepto","fRegPuesto"].forEach(id=>{ document.getElementById(id).value = ""; document.getElementById(id).dataset.count = -1; });
+  ["fRegDesde","fRegHasta","fColabDesde","fColabHasta"].forEach(id=>document.getElementById(id).value = "");
+  document.getElementById("fRegSoloAlertas").checked = false;
+  document.getElementById("fColabOrden").value = "extra_desc";
+}
+
+function descripcionFiltro({buscar, turno, desde, hasta, depto, puesto, soloAlertas}, origen){
+  const partes = [];
+  if(buscar) partes.push(`"${buscar}"`);
+  if(turno) partes.push(`turno ${turno}`);
+  if(depto) partes.push(`depto. ${depto}`);
+  if(puesto) partes.push(`puesto ${puesto}`);
+  if(desde || hasta) partes.push(`${desde?fmtFecha(desde):"inicio"} – ${hasta?fmtFecha(hasta):"hoy"}`);
+  if(soloAlertas) partes.push("solo con alertas");
+  if(partes.length === 0) return null;
+  return `El dashboard está filtrado (desde ${origen}): ${partes.join(" · ")}`;
+}
+
+function actualizarBannerFiltro(){
+  const banner = document.getElementById("dashFiltroBanner");
+  if(state.filtroActivoDesc){
+    document.getElementById("dashFiltroTexto").textContent = state.filtroActivoDesc;
+    banner.style.display = "flex";
+  } else {
+    banner.style.display = "none";
+  }
+}
+document.getElementById("btnQuitarFiltroDash").addEventListener("click", ()=>{
+  limpiarTodosLosFiltros();
+  state.registrosActivos = state.registros;
+  state.filtroActivoDesc = null;
+  actualizarBannerFiltro();
+  renderDashboard();
+  renderColaboradores();
+  renderRegistros();
+});
+
 /* =========================================================
    DASHBOARD
    ========================================================= */
 function renderDashboard(){
-  const regs = state.registros;
+  const regs = state.registrosActivos || state.registros;
+  state.colabAggActivo = agregarPorColaborador(regs);
   const totalExtra = regs.reduce((s,r)=>s+(r.horas_extra||0),0);
   const totalDoble = regs.reduce((s,r)=>s+(r.horas_doble||0),0);
   const colabSet = new Set(regs.map(r=>r.cedula));
@@ -1084,7 +1142,7 @@ function renderDashboard(){
 function renderTopNChart(){
   const topN = parseInt(document.getElementById("topNSelect").value, 10) || 10;
   document.getElementById("top10Titulo").textContent = `Top ${topN} · Más horas extra`;
-  const top10 = [...state.colabAgg].sort((a,b)=>b.horas_extra-a.horas_extra).slice(0,topN);
+  const top10 = [...(state.colabAggActivo || state.colabAgg)].sort((a,b)=>b.horas_extra-a.horas_extra).slice(0,topN);
   const canvas = document.getElementById("chartTop10");
   canvas.style.height = Math.max(280, Math.min(900, topN*26)) + "px";
   drawChart("chartTop10","bar",{
@@ -1114,13 +1172,6 @@ function renderColaboradores(){
   const hasta = document.getElementById("fColabHasta").value;
   const depto = document.getElementById("fColabDepto").value;
 
-  const regsPeriodo = state.registros.filter(r=>{
-    const matchDesde = !desde || r.fecha >= desde;
-    const matchHasta = !hasta || r.fecha <= hasta;
-    return matchDesde && matchHasta;
-  });
-  const colabAggPeriodo = (desde || hasta) ? agregarPorColaborador(regsPeriodo) : state.colabAgg;
-
   // poblar el select de departamentos con lo que exista en la sede actual
   const deptoSelect = document.getElementById("fColabDepto");
   const deptosDisponibles = Array.from(new Set(state.colabAgg.map(c=>c.departamento||"Sin departamento"))).sort();
@@ -1130,44 +1181,54 @@ function renderColaboradores(){
     deptoSelect.dataset.count = deptosDisponibles.length;
   }
 
+  // filtra a nivel de registro (no de colaborador agregado) para que coincida con el resto del sistema
+  const regsFiltrados = state.registros.filter(r=>{
+    const matchBuscar = !buscar || r.nombre.toLowerCase().includes(buscar) || r.cedula.includes(buscar);
+    const matchTurno = !turno || r.turno===turno;
+    const matchDesde = !desde || r.fecha >= desde;
+    const matchHasta = !hasta || r.fecha <= hasta;
+    const matchDepto = !depto || (r.departamento||"Sin departamento") === depto;
+    return matchBuscar && matchTurno && matchDesde && matchHasta && matchDepto;
+  });
+  const hayFiltro = !!(buscar || turno || desde || hasta || depto);
+
   const infoEl = document.getElementById("colabPeriodoInfo");
-  if(desde || hasta){
-    infoEl.textContent = `📅 Mostrando totales del periodo: ${desde?fmtFecha(desde):"inicio"} — ${hasta?fmtFecha(hasta):"hoy"} (${regsPeriodo.length} registros)`;
+  if(hayFiltro){
+    infoEl.textContent = `📅 Mostrando totales filtrados: ${regsFiltrados.length} registros`;
   } else {
     infoEl.textContent = "";
   }
 
-  let list = colabAggPeriodo.filter(c=>{
-    const matchBuscar = !buscar || c.nombre.toLowerCase().includes(buscar) || c.cedula.includes(buscar);
-    const matchTurno = !turno || (c.turnos[turno] && c.turnos[turno]>0);
-    const matchDepto = !depto || (c.departamento||"Sin departamento") === depto;
-    return matchBuscar && matchTurno && matchDepto;
-  });
-
+  let list = agregarPorColaborador(regsFiltrados);
   if(orden==="extra_desc") list.sort((a,b)=>b.horas_extra-a.horas_extra);
   else if(orden==="extra_asc") list.sort((a,b)=>a.horas_extra-b.horas_extra);
   else if(orden==="nombre_asc") list.sort((a,b)=>a.nombre.localeCompare(b.nombre));
   else if(orden==="doble_desc") list.sort((a,b)=>b.horas_doble-a.horas_doble);
 
   state.colabListaActual = list;
-  const maxExtra = Math.max(1, ...list.map(c=>c.horas_extra));
   const container = document.getElementById("colabList");
   if(list.length===0){
     container.innerHTML = `<div class="empty-state"><div class="ico">🦜</div>Sin colaboradores para mostrar con estos filtros.</div>`;
-    return;
-  }
-  container.innerHTML = list.map((c,i)=>`
-    <div class="rank-row" onclick="abrirModalColab('${c.cedula}')">
-      <div class="rank-num ${i<3?'top':''}">${i+1}</div>
-      <div class="rank-info">
-        <div class="rank-name">${c.nombre}</div>
-        <div class="rank-ced">${c.cedula} · ${c.registros} registros</div>
-        <div class="rank-ced" style="margin-top:2px;">🏢 ${c.departamento||"Sin departamento"} · 💼 ${c.puesto||"Sin puesto"}</div>
+  } else {
+    const maxExtra = Math.max(1, ...list.map(c=>c.horas_extra));
+    container.innerHTML = list.map((c,i)=>`
+      <div class="rank-row" onclick="abrirModalColab('${c.cedula}')">
+        <div class="rank-num ${i<3?'top':''}">${i+1}</div>
+        <div class="rank-info">
+          <div class="rank-name">${c.nombre}</div>
+          <div class="rank-ced">${c.cedula} · ${c.registros} registros</div>
+          <div class="rank-ced" style="margin-top:2px;">🏢 ${c.departamento||"Sin departamento"} · 💼 ${c.puesto||"Sin puesto"}</div>
+        </div>
+        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${(c.horas_extra/maxExtra*100).toFixed(0)}%"></div></div>
+        <div class="rank-hrs">${fmtHorasCorta(c.horas_extra)}</div>
       </div>
-      <div class="rank-bar-wrap"><div class="rank-bar" style="width:${(c.horas_extra/maxExtra*100).toFixed(0)}%"></div></div>
-      <div class="rank-hrs">${fmtHorasCorta(c.horas_extra)}</div>
-    </div>
-  `).join("");
+    `).join("");
+  }
+
+  state.registrosActivos = regsFiltrados;
+  state.filtroActivoDesc = hayFiltro ? descripcionFiltro({buscar, turno, desde, hasta, depto}, "Colaboradores") : null;
+  actualizarBannerFiltro();
+  renderDashboard();
 }
 ["fColabBuscar","fColabTurno","fColabOrden","fColabDesde","fColabHasta","fColabDepto"].forEach(id=>{
   document.getElementById(id).addEventListener("input", renderColaboradores);
@@ -1313,12 +1374,33 @@ document.getElementById("btnReportePDF").addEventListener("click", ()=>{
 /* =========================================================
    REGISTROS (tabla completa)
    ========================================================= */
+function poblarFiltrosDeptoPuesto(){
+  const deptoSelect = document.getElementById("fRegDepto");
+  const puestoSelect = document.getElementById("fRegPuesto");
+  const deptos = Array.from(new Set(state.registros.map(r=>r.departamento||"Sin departamento"))).sort();
+  const puestos = Array.from(new Set(state.registros.map(r=>r.puesto||"Sin puesto"))).sort();
+  if(deptoSelect.dataset.count != deptos.length){
+    const actual = deptoSelect.value;
+    deptoSelect.innerHTML = `<option value="">Todos los departamentos</option>` + deptos.map(d=>`<option value="${d}">${d}</option>`).join("");
+    deptoSelect.value = actual;
+    deptoSelect.dataset.count = deptos.length;
+  }
+  if(puestoSelect.dataset.count != puestos.length){
+    const actual = puestoSelect.value;
+    puestoSelect.innerHTML = `<option value="">Todos los puestos</option>` + puestos.map(p=>`<option value="${p}">${p}</option>`).join("");
+    puestoSelect.value = actual;
+    puestoSelect.dataset.count = puestos.length;
+  }
+}
+
 function aplicarFiltrosRegistros(){
   const buscar = (document.getElementById("fRegBuscar").value||"").toLowerCase();
   const turno = document.getElementById("fRegTurno").value;
   const desde = document.getElementById("fRegDesde").value;
   const hasta = document.getElementById("fRegHasta").value;
   const soloAlertas = document.getElementById("fRegSoloAlertas").checked;
+  const depto = document.getElementById("fRegDepto").value;
+  const puesto = document.getElementById("fRegPuesto").value;
 
   state.regFiltrados = state.registros.filter(r=>{
     const matchBuscar = !buscar || r.nombre.toLowerCase().includes(buscar) || r.cedula.includes(buscar);
@@ -1326,11 +1408,18 @@ function aplicarFiltrosRegistros(){
     const matchDesde = !desde || r.fecha >= desde;
     const matchHasta = !hasta || r.fecha <= hasta;
     const matchAlerta = !soloAlertas || excedeJornada(r);
-    return matchBuscar && matchTurno && matchDesde && matchHasta && matchAlerta;
+    const matchDepto = !depto || (r.departamento||"Sin departamento") === depto;
+    const matchPuesto = !puesto || (r.puesto||"Sin puesto") === puesto;
+    return matchBuscar && matchTurno && matchDesde && matchHasta && matchAlerta && matchDepto && matchPuesto;
   });
   ordenarRegistros();
   state.pagina = 1;
   renderTablaRegistros();
+
+  state.registrosActivos = state.regFiltrados;
+  state.filtroActivoDesc = descripcionFiltro({buscar, turno, desde, hasta, depto, puesto, soloAlertas}, "Registros");
+  actualizarBannerFiltro();
+  renderDashboard();
 }
 function ordenarRegistros(){
   const {sortKey, sortDir} = state;
@@ -1343,6 +1432,7 @@ function ordenarRegistros(){
   });
 }
 function renderRegistros(){
+  poblarFiltrosDeptoPuesto();
   state.regFiltrados = [...state.registros];
   ordenarRegistros();
   state.pagina = 1;
@@ -1356,7 +1446,7 @@ function renderTablaRegistros(){
   const tbody = document.getElementById("tbodyRegistros");
 
   if(pageItems.length===0){
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--ink-soft);">🦜 Sin registros para estos filtros</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--ink-soft);">🦜 Sin registros para estos filtros</td></tr>`;
   } else {
     tbody.innerHTML = pageItems.map(r=>{
       const badgeClass = r.turno==="Diurno"?"diurno":r.turno==="Mixto"?"mixto":r.turno==="Nocturno"?"nocturno":"sin";
@@ -1367,6 +1457,8 @@ function renderTablaRegistros(){
       return `<tr${alerta ? ` style="background:#FFF6EC;"` : ""}>
         <td><b>${r.nombre}</b>${alerta ? ` <span title="${alertaTitulo}" style="cursor:help;">⚠️</span>` : ""}</td>
         <td style="font-family:var(--font-mono);">${r.cedula}</td>
+        <td>${r.departamento||"—"}</td>
+        <td>${r.puesto||"—"}</td>
         <td>${fmtFecha(r.fecha)}</td>
         <td>${r.hora_entra}</td>
         <td>${r.hora_sale}</td>
@@ -1389,9 +1481,13 @@ document.getElementById("btnLimpiarFiltros").addEventListener("click", ()=>{
   document.getElementById("fRegDesde").value="";
   document.getElementById("fRegHasta").value="";
   document.getElementById("fRegSoloAlertas").checked=false;
+  document.getElementById("fRegDepto").value="";
+  document.getElementById("fRegPuesto").value="";
   renderRegistros();
 });
 document.getElementById("fRegSoloAlertas").addEventListener("change", aplicarFiltrosRegistros);
+document.getElementById("fRegDepto").addEventListener("change", aplicarFiltrosRegistros);
+document.getElementById("fRegPuesto").addEventListener("change", aplicarFiltrosRegistros);
 document.getElementById("fRegBuscar").addEventListener("keydown", e=>{ if(e.key==="Enter") aplicarFiltrosRegistros(); });
 document.getElementById("pgPrev").addEventListener("click", ()=>{ if(state.pagina>1){ state.pagina--; renderTablaRegistros(); } });
 document.getElementById("pgNext").addEventListener("click", ()=>{ state.pagina++; renderTablaRegistros(); });
@@ -1439,7 +1535,7 @@ function exportarExcel(rows, filename){
 }
 document.getElementById("btnExportRegistros").addEventListener("click", ()=>{
   const rows = state.regFiltrados.map(r=>({
-    Colaborador:r.nombre, Cedula:r.cedula, Sede:r.sede, Fecha:fmtFecha(r.fecha), Entrada:r.hora_entra, Salida:r.hora_sale,
+    Colaborador:r.nombre, Cedula:r.cedula, Sede:r.sede, Departamento:r.departamento||"Sin departamento", Puesto:r.puesto||"Sin puesto", Fecha:fmtFecha(r.fecha), Entrada:r.hora_entra, Salida:r.hora_sale,
     Turno:r.turno, Ordinario:fmtHoras(r.horas_ordinaria), Extra:fmtHoras(r.horas_extra), Doble:fmtHoras(r.horas_doble)
   }));
   exportarExcel(rows, `registros_${state.sedeActual}_${new Date().toISOString().slice(0,10)}.xlsx`);
